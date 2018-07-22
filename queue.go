@@ -41,11 +41,11 @@ type Config struct {
 
 // Queue holds aws sqs properties required to send/receive sqs messages via the aws sdk.
 type Queue struct {
-	VisibilityTimeout int
-	svc               *sqs.SQS
-	Name              *string
-	Region            *string
-	URL               *string
+	VisibilityTimeoutSeconds int
+	Name                     *string
+	Region                   *string
+	URL                      *string
+	svc                      *sqs.SQS
 }
 
 // NewQueue returns a new SqsHandle with service and queue URL set.
@@ -57,7 +57,7 @@ func NewQueue(config Config) (*Queue, error) {
 		return nil, ErrInvalidVisibilityTimeout
 	}
 
-	q.VisibilityTimeout = config.VisibilityTimeoutSeconds
+	q.VisibilityTimeoutSeconds = config.VisibilityTimeoutSeconds
 	q.svc, err = getService(&config.Region)
 	if err != nil {
 		return nil, err
@@ -272,7 +272,7 @@ func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
 		},
 		QueueUrl:            q.URL,
 		MaxNumberOfMessages: aws.Int64(int64(n)),
-		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeout)),
+		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeoutSeconds)),
 		WaitTimeSeconds:     aws.Int64(20),
 	})
 	return result, err
