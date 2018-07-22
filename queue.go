@@ -44,7 +44,7 @@ type Queue struct {
 	svc                      *sqs.SQS
 }
 
-// NewQueue returns a new SqsHandle with service and queue URL set.
+// NewQueue creates a new Queue from given configuration.
 func NewQueue(config Config) (*Queue, error) {
 	var q Queue
 	var err error
@@ -78,7 +78,7 @@ func (q *Queue) ApproximateLen() int {
 	return length
 }
 
-// Insert takes a string and inserts it into the queue.
+// Insert inserts a string, up to 256KB into the queue.
 func (q *Queue) Insert(input string) error {
 	request := &sqs.SendMessageInput{
 		MessageBody: &input,
