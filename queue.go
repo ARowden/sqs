@@ -7,16 +7,14 @@ import (
 	"strconv"
 	"time"
 
-	"strings"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
 var (
-	// ErrInvalidVisibilityTimeout indicates the set VisibilityTimeoutSeconds was 0. When this happens the same
-	// messages will be returned multiple times even within the same batch request.
+	// ErrInvalidVisibilityTimeout indicates the set VisibilityTimeoutSeconds was 0. When this happens the same items
+	// will be returned multiple times even within the same batch request.
 	ErrInvalidVisibilityTimeout = errors.New("VisibilityTimeoutSeconds must be greater than 0")
 )
 
@@ -25,17 +23,23 @@ type Item sqs.Message
 
 // Config contains required parameters to create a Queue.
 type Config struct {
-	//    * VisibilityTimeoutSeconds - The amount of time after receiving an item before it can be pulled from the queue
-	//      again. This should be enough time to process and delete the message. This must be greater than 0.
+	//      The amount of time after receiving an item before it can be pulled from the queue again. This should be
+	//      enough time to process and delete the message. This must be greater than 0.
+	//
+	//      VisibilityTimeoutSeconds is a required field
 	VisibilityTimeoutSeconds int
-	//    * Region - The AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
-    //    https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
-	Region                   string
-	//    * Name - The name of the Simple Queue Service.
-	Name                     string
+	//      AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
+	//      https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
+	//
+	//      Region is a required field
+	Region string
+	//      Name of the Simple Queue Service.
+	//
+	//      Name is a required field
+	Name string
 }
 
-// Queue implements a queue with items stored in AWS Simple Queue Service.
+// Queue implements a queue based on AWS Simple Queue Service.
 type Queue struct {
 	VisibilityTimeoutSeconds int
 	Name                     *string
@@ -44,7 +48,7 @@ type Queue struct {
 	svc                      *sqs.SQS
 }
 
-// NewQueue creates a new Queue from given configuration.
+// NewQueue creates a new Queue.
 func NewQueue(config Config) (*Queue, error) {
 	var q Queue
 	var err error
@@ -63,8 +67,32 @@ func NewQueue(config Config) (*Queue, error) {
 	return &q, err
 }
 
-// ApproximateLen returns approximately the number of items in the queue. This attribute lags the actual queue size by
-// up to 30 seconds. After 30 seconds of no activity, it will
+// invalidVisibilityTimeout returns true if the timeout is equal to 0. This is a valid setting for AWS, but makes the
+// queue unusable.
+func invalidVisibilityTimeout(timeout int) bool {
+	return timeout == 0
+}
+
+// getService returns an AWS SQS service for the specified region.
+func getService(region *string) (*sqs.SQS, error) {
+	s, err := session.NewSession(&aws.Config{Region: region})
+	return sqs.New(s), err
+}
+
+// getQueueURL returns the URL for the specified queue name in the given region.
+func getQueueURL(name, region string) (*string, error) {
+	svc, err := getService(&region)
+	if err != nil {
+		return nil, err
+	}
+
+	input := sqs.GetQueueUrlInput{QueueName: &name}
+	result, err := svc.GetQueueUrl(&input)
+	return result.QueueUrl, err
+}
+
+// ApproximateLen returns approximately the number of items in the queue. This attribute can lag the actual queue size
+// by up to 30 seconds.
 func (q *Queue) ApproximateLen() int {
 	queueLenAttribute := aws.String("ApproximateNumberOfMessages")
 	request := &sqs.GetQueueAttributesInput{
@@ -78,7 +106,7 @@ func (q *Queue) ApproximateLen() int {
 	return length
 }
 
-// Insert inserts a string, up to 256KB into the queue.
+// Insert inserts a string into the queue.
 func (q *Queue) Insert(input string) error {
 	request := &sqs.SendMessageInput{
 		MessageBody: &input,
@@ -89,7 +117,7 @@ func (q *Queue) Insert(input string) error {
 	return err
 }
 
-// InsertBatch takes up to 10 items and inserts them into the queue.
+// InsertBatch inserts up to 10 strings into the queue.
 func (q *Queue) InsertBatch(inputs []string) error {
 	entries := q.makeBatchRequestEntries(inputs)
 	request := &sqs.SendMessageBatchInput{
@@ -101,7 +129,7 @@ func (q *Queue) InsertBatch(inputs []string) error {
 	return err
 }
 
-// Delete takes a single item and removes it from the queue.
+// Delete takes a single Item and removes it from the queue.
 func (q *Queue) Delete(message *Item) error {
 	request := &sqs.DeleteMessageInput{
 		QueueUrl:      q.URL,
@@ -112,7 +140,7 @@ func (q *Queue) Delete(message *Item) error {
 	return err
 }
 
-// DeleteBatch deletes a batch of up to 10 sqs messages.
+// DeleteBatch deletes a batch of up to 10 Items.
 func (q *Queue) DeleteBatch(messages []*Item) error {
 	items := convertItemsToAwsMessages(messages)
 	entries := makeDeleteMessageBatchRequestEntry(items)
@@ -125,7 +153,8 @@ func (q *Queue) DeleteBatch(messages []*Item) error {
 	return err
 }
 
-// Peek returns an item from the queue but does not delete it. If the queue is empty nil is returned.
+// Peek returns an Item from the queue but does not delete it. If the Item is not deleted within the visibility timeout
+// it could be received again or received by another instance of the queue. If the queue is empty nil is returned.
 func (q *Queue) Peek() (*Item, error) {
 	items, err := q.receiveNitems(1)
 	if err != nil {
@@ -140,26 +169,45 @@ func (q *Queue) Peek() (*Item, error) {
 	return localItems[0], nil
 }
 
-// PeekBatch returns up to 10 items from the queue but does not delete them.
+// PeekBatch returns up to 10 Items from the queue put does not delete them. If the Item is not deleted within the
+// visibility timeout it could be received again or received by another instance of the queue. If the queue is empty nil
+// is returned.
 func (q *Queue) PeekBatch() ([]*Item, error) {
 	messages, err := q.receiveNitems(10)
 	items := convertAwsMessagesToItems(messages.Messages)
 	return items, err
 }
 
-// Pop retrieves an item from the queue and deletes it.
+// receiveNitems returns specified number of items. Must be between 1 - 10.
+func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
+	result, err := q.svc.ReceiveMessage(&sqs.ReceiveMessageInput{
+		AttributeNames: []*string{
+			aws.String(sqs.MessageSystemAttributeNameSentTimestamp),
+		},
+		MessageAttributeNames: []*string{
+			aws.String(sqs.QueueAttributeNameAll),
+		},
+		QueueUrl:            q.URL,
+		MaxNumberOfMessages: aws.Int64(int64(n)),
+		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeoutSeconds)),
+		WaitTimeSeconds:     aws.Int64(20),
+	})
+	return result, err
+}
+
+// Pop retrieves an Item from the queue, deletes it from the queue and returns it.
 func (q *Queue) Pop() (*Item, error) {
-	items, err := q.receiveNitems(1)
+	response, err := q.receiveNitems(1)
 	if err != nil {
 		return nil, err
 	}
 
-	messages := convertAwsMessagesToItems(items.Messages)
-	if len(messages) == 0 {
+	items := convertAwsMessagesToItems(response.Messages)
+	if len(items) == 0 {
 		return nil, nil
 	}
 
-	item := messages[0]
+	item := items[0]
 	err = q.Delete(item)
 	return item, err
 }
@@ -179,8 +227,28 @@ func (q *Queue) PopBatch() ([]*Item, error) {
 	return messages, err
 }
 
+// convertAwsMessagesToItems converts aws sqs.messages to our local type, Item.
+func convertAwsMessagesToItems(awsMessages []*sqs.Message) (messages []*Item) {
+	for _, message := range awsMessages {
+		newMessage := Item(*message)
+		messages = append(messages, &newMessage)
+	}
+	return messages
+}
+
+// convertItemsToAwsMessages converts slice of Items to sqs.Messages
+func convertItemsToAwsMessages(messages []*Item) (sqsMessages []*sqs.Message) {
+	for _, message := range messages {
+		newMessage := sqs.Message(*message)
+		sqsMessages = append(sqsMessages, &newMessage)
+	}
+
+	return sqsMessages
+}
+
 // Clear clears contents of queue and waits for completion (takes up to 60 seconds according to AWS spec), but averages
-// sub second times.
+// sub second times. This may only be called once every 60 seconds. An error will be returned if called twice in the
+// same minute.
 func (q *Queue) Clear() error {
 	err := q.purge()
 	if err != nil {
@@ -189,89 +257,6 @@ func (q *Queue) Clear() error {
 
 	q.waitForPurgeCompletion()
 	return nil
-}
-
-// CreateQueue creates a new queue.
-func CreateQueue(name, region string) error {
-	svc, err := getService(&region)
-	if err != nil {
-		return err
-	}
-
-	input := &sqs.CreateQueueInput{
-		QueueName: &name,
-	}
-
-	_, err = svc.CreateQueue(input)
-	return err
-}
-
-// DeleteQueue deletes the specified queue from AWS.
-func DeleteQueue(name, region string) error {
-	url, err := getQueueURL(name, region)
-	if err != nil {
-		return err
-	}
-
-	svc, err := getService(&region)
-	if err != nil {
-		return err
-	}
-
-	request := &sqs.DeleteQueueInput{QueueUrl: url}
-
-	_, err = svc.DeleteQueue(request)
-	return err
-}
-
-// QueueExists returns true if the queue exists, False otherwise.
-func QueueExists(name, region string) (bool, error) {
-	request := &sqs.ListQueuesInput{
-		QueueNamePrefix: aws.String(name),
-	}
-
-	svc, err := getService(&region)
-	if err != nil {
-		return false, err
-	}
-
-	output, err := svc.ListQueues(request)
-	if err != nil {
-		return false, err
-	}
-
-	if !queueInQueueList(output, name) {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func queueInQueueList(queueList *sqs.ListQueuesOutput, name string) bool {
-	for _, url := range queueList.QueueUrls {
-		if strings.HasSuffix(*url, name) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// receiveNitems returns specified number of items. Must be between 1 - 10.
-func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
-	result, err := q.svc.ReceiveMessage(&sqs.ReceiveMessageInput{
-		AttributeNames: []*string{
-			aws.String(sqs.MessageSystemAttributeNameSentTimestamp),
-		},
-		MessageAttributeNames: []*string{
-			aws.String(sqs.QueueAttributeNameAll),
-		},
-		QueueUrl:            q.URL,
-		MaxNumberOfMessages: aws.Int64(int64(n)),
-		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeoutSeconds)),
-		WaitTimeSeconds:     aws.Int64(20),
-	})
-	return result, err
 }
 
 // purge clears the contents of the queue.
@@ -306,30 +291,6 @@ func (q *Queue) makeBatchRequestEntries(items []string) (entries []*sqs.SendMess
 	return entries
 }
 
-// getService returns an AWS SQS service for the specified region.
-func getService(region *string) (*sqs.SQS, error) {
-	s, err := session.NewSession(&aws.Config{Region: region})
-	return sqs.New(s), err
-}
-
-// getQueueURL returns the URL for the specified queue name in the given region.
-func getQueueURL(name, region string) (*string, error) {
-	svc, err := getService(&region)
-	if err != nil {
-		return nil, err
-	}
-
-	input := sqs.GetQueueUrlInput{QueueName: &name}
-	result, err := svc.GetQueueUrl(&input)
-	return result.QueueUrl, err
-}
-
-// invalidVisibilityTimeout returns true if the timeout is equal to 0. This is a valid setting for AWS, but makes the
-// queue unusable.
-func invalidVisibilityTimeout(timeout int) bool {
-	return timeout == 0
-}
-
 // makeDeleteMessageBatchRequestEntry takes a slice of sqs messages and converts them into a request that will delete
 // all of them as a batch.
 func makeDeleteMessageBatchRequestEntry(messages []*sqs.Message) (entries []*sqs.DeleteMessageBatchRequestEntry) {
@@ -342,25 +303,6 @@ func makeDeleteMessageBatchRequestEntry(messages []*sqs.Message) (entries []*sqs
 	}
 
 	return entries
-}
-
-// convertAwsMessagesToItems converts aws sqs.messages to our local type, Item.
-func convertAwsMessagesToItems(awsMessages []*sqs.Message) (messages []*Item) {
-	for _, message := range awsMessages {
-		newMessage := Item(*message)
-		messages = append(messages, &newMessage)
-	}
-	return messages
-}
-
-// convertItemsToAwsMessages converts slice of Items to sqs.Messages
-func convertItemsToAwsMessages(messages []*Item) (sqsMessages []*sqs.Message) {
-	for _, message := range messages {
-		newMessage := sqs.Message(*message)
-		sqsMessages = append(sqsMessages, &newMessage)
-	}
-
-	return sqsMessages
 }
 
 // generateRandomID generates random string that can be used with messageID and groupID fields.
