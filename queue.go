@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	// ErrInvalidVisibilityTimeout indicates the set VisibilityTimeout was 0. When this happens the same
+	// ErrInvalidVisibilityTimeout indicates the set VisibilityTimeoutSeconds was 0. When this happens the same
 	// messages will be returned multiple times even within the same batch request.
-	ErrInvalidVisibilityTimeout = errors.New("VisibilityTimeout must be greater than 0")
+	ErrInvalidVisibilityTimeout = errors.New("VisibilityTimeoutSeconds must be greater than 0")
 )
 
 // Item is the data type stored in the queue.
@@ -25,19 +25,18 @@ type Item sqs.Message
 
 // Config struct contains required parameters to create a Queue object.
 //
-// VisibilityTimeout - The amount of time after receiving an item before it can be pulled from the queue again. This
-//                     should be enough time to process and delete the message. This must be greater than 0. Setting to
-//                     0 will make it impossible to ever process a message and the same message will be returned
-//                     multiple times in the same batch request.
+// VisibilityTimeoutSeconds - The amount of time after receiving an item before it can be pulled from the queue again.
+//                            This should be enough time to process and delete the message. This must be greater than 0.
+
 //
-// Region            - The AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
-//                     https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
+// Region                   - The AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
+//                            https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
 //
-// Name              - The name of the Simple Queue Service.
+// Name                     - The name of the Simple Queue Service.
 type Config struct {
-	VisibilityTimeout int
-	Region            string
-	Name              string
+	VisibilityTimeoutSeconds int
+	Region                   string
+	Name                     string
 }
 
 // Queue holds aws sqs properties required to send/receive sqs messages via the aws sdk.
@@ -54,11 +53,11 @@ func NewQueue(config Config) (*Queue, error) {
 	var q Queue
 	var err error
 
-	if invalidVisibilityTimeout(config.VisibilityTimeout) {
+	if invalidVisibilityTimeout(config.VisibilityTimeoutSeconds) {
 		return nil, ErrInvalidVisibilityTimeout
 	}
 
-	q.VisibilityTimeout = config.VisibilityTimeout
+	q.VisibilityTimeout = config.VisibilityTimeoutSeconds
 	q.svc, err = getService(&config.Region)
 	if err != nil {
 		return nil, err
