@@ -4,16 +4,16 @@ be up and running with in in minutes.
 For example, to retrive and delete a batch of messages with the AWS SDK, it would require...
 
 ```golang
-	result, err := q.svc.ReceiveMessage(&sqs.ReceiveMessageInput{
+	result, err := svc.ReceiveMessage(&sqs.ReceiveMessageInput{
 		AttributeNames: []*string{
 			aws.String(sqs.MessageSystemAttributeNameSentTimestamp),
 		},
 		MessageAttributeNames: []*string{
 			aws.String(sqs.QueueAttributeNameAll),
 		},
-		QueueUrl:            q.URL,
-		MaxNumberOfMessages: aws.Int64(int64(n)),
-		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeout)),
+		QueueUrl:            URL,
+		MaxNumberOfMessages: aws.Int64(10),
+		VisibilityTimeout:   aws.Int64(1),
 		WaitTimeSeconds:     aws.Int64(20),
 	})
 
@@ -29,17 +29,16 @@ For example, to retrive and delete a batch of messages with the AWS SDK, it woul
 	entries := makeDeleteMessageBatchRequestEntry(items)
 	request := &sqs.DeleteMessageBatchInput{
 		Entries:  entries,
-		QueueUrl: q.URL,
+		QueueUrl: URL,
 	}
 
-	output, err := q.svc.DeleteMessageBatch(request)
+	output, err := svc.DeleteMessageBatch(request)
+	messages := output.Messages
 ```
 Which has been simplified to...
 
 ```golang
 items, err := queue.PopBatch()
-// or
-item, err := queue.Pop()
 ```
 ### Getting started
 #### Get the server set up with AWS access
@@ -60,3 +59,29 @@ config := sqs.Config{
 
 queue, err := NewQueue(config)
 ```
+
+### SQS creation/deletion
+```golang
+// Creation
+sqs.CreateQueue("QueueName", "AWS_REGION")
+// Deletion
+sqs.DeleteQueue("QueueName", "AWS_REGION")
+```
+
+### Supported Queue Operations
+#### Pop
+Receives one item from the queue and deletes it from the queue.
+#### PopBatch
+Receives up to 10 items from the queue and deletes them from the queue.
+#### Peek
+Returns one item from the queue, but does not delete it.
+#### PeekBatch
+Returns up to 10 items from the queue, but does not delete them.
+#### Insert
+Inserts one item (string) into the queue.
+#### InsertBatch
+Inserts up to 10 items (strings) into the queue.
+#### Clear
+Clears all items from the queue. This may take up to 60 seconds and may only be called once every 60 seconds.
+#### ApproximateLength
+Returns the number of items in the queue, but lags the actual number of items in the queue by up to 30 seconds.
