@@ -32,11 +32,11 @@ type Config struct {
 
 // Queue implements a queue based on AWS Simple Queue Service.
 type Queue struct {
-	VisibilityTimeoutSeconds int // Time after receiving the message before it can be pulled form the queue again.
-	Name   *string  // The name of the queue.
-	Region *string  // AWS region the queue is located in.
-	URL    *string  // The URL of the queue.
-	svc    *sqs.SQS // Service struct from the SQS SDK.
+	VisibilityTimeoutSeconds int      // Time after receiving the message before it can be pulled form the queue again.
+	Name                     *string  // The name of the queue.
+	Region                   *string  // AWS region the queue is located in.
+	URL                      *string  // The URL of the queue.
+	svc                      *sqs.SQS // Service struct from the SQS SDK.
 }
 
 // NewQueue creates a new Queue.
@@ -110,7 +110,7 @@ func (q *Queue) Insert(input string) error {
 
 // InsertBatch inserts up to 10 strings into the queue.
 func (q *Queue) InsertBatch(inputs []string) error {
-	entries := q.makeBatchRequestEntries(inputs)
+	entries := makeBatchRequestEntries(inputs)
 	request := &sqs.SendMessageBatchInput{
 		Entries:  entries,
 		QueueUrl: q.URL,
@@ -169,23 +169,6 @@ func (q *Queue) PeekBatch() ([]*Item, error) {
 	return items, err
 }
 
-// receiveNitems returns specified number of items. Must be between 1 - 10.
-func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
-	result, err := q.svc.ReceiveMessage(&sqs.ReceiveMessageInput{
-		AttributeNames: []*string{
-			aws.String(sqs.MessageSystemAttributeNameSentTimestamp),
-		},
-		MessageAttributeNames: []*string{
-			aws.String(sqs.QueueAttributeNameAll),
-		},
-		QueueUrl:            q.URL,
-		MaxNumberOfMessages: aws.Int64(int64(n)),
-		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeoutSeconds)),
-		WaitTimeSeconds:     aws.Int64(20),
-	})
-	return result, err
-}
-
 // Pop retrieves an Item from the queue, deletes it from the queue and returns it.
 func (q *Queue) Pop() (*Item, error) {
 	response, err := q.receiveNitems(1)
@@ -218,25 +201,6 @@ func (q *Queue) PopBatch() ([]*Item, error) {
 	return messages, err
 }
 
-// convertAwsMessagesToItems converts aws sqs.messages to our local type, Item.
-func convertAwsMessagesToItems(awsMessages []*sqs.Message) (messages []*Item) {
-	for _, message := range awsMessages {
-		newMessage := Item(*message)
-		messages = append(messages, &newMessage)
-	}
-	return messages
-}
-
-// convertItemsToAwsMessages converts slice of Items to sqs.Messages
-func convertItemsToAwsMessages(messages []*Item) (sqsMessages []*sqs.Message) {
-	for _, message := range messages {
-		newMessage := sqs.Message(*message)
-		sqsMessages = append(sqsMessages, &newMessage)
-	}
-
-	return sqsMessages
-}
-
 // Clear clears contents of queue and waits for completion (takes up to 60 seconds according to AWS spec), but averages
 // sub second times. This may only be called once every 60 seconds. An error will be returned if called twice in the
 // same minute.
@@ -267,9 +231,45 @@ func (q *Queue) waitForPurgeCompletion() {
 	}
 }
 
+// receiveNitems returns specified number of items. Must be between 1 - 10.
+func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
+	result, err := q.svc.ReceiveMessage(&sqs.ReceiveMessageInput{
+		AttributeNames: []*string{
+			aws.String(sqs.MessageSystemAttributeNameSentTimestamp),
+		},
+		MessageAttributeNames: []*string{
+			aws.String(sqs.QueueAttributeNameAll),
+		},
+		QueueUrl:            q.URL,
+		MaxNumberOfMessages: aws.Int64(int64(n)),
+		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeoutSeconds)),
+		WaitTimeSeconds:     aws.Int64(20),
+	})
+	return result, err
+}
+
+// convertAwsMessagesToItems converts aws sqs.messages to our local type, Item.
+func convertAwsMessagesToItems(awsMessages []*sqs.Message) (messages []*Item) {
+	for _, message := range awsMessages {
+		newMessage := Item(*message)
+		messages = append(messages, &newMessage)
+	}
+	return messages
+}
+
+// convertItemsToAwsMessages converts slice of Items to sqs.Messages
+func convertItemsToAwsMessages(messages []*Item) (sqsMessages []*sqs.Message) {
+	for _, message := range messages {
+		newMessage := sqs.Message(*message)
+		sqsMessages = append(sqsMessages, &newMessage)
+	}
+
+	return sqsMessages
+}
+
 // makeBatchRequestEntries takes a slice of string items and returns what can be used as a request to aws
 // to insert the items into the queue.
-func (q *Queue) makeBatchRequestEntries(items []string) (entries []*sqs.SendMessageBatchRequestEntry) {
+func makeBatchRequestEntries(items []string) (entries []*sqs.SendMessageBatchRequestEntry) {
 	for _, item := range items {
 		id := generateRandomID()
 		newEntry := &sqs.SendMessageBatchRequestEntry{
