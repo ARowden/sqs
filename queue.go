@@ -15,7 +15,7 @@ import (
 var (
 	// ErrInvalidVisibilityTimeout indicates the set VisibilityTimeoutSeconds was 0. When this happens the same items
 	// will be returned multiple times even within the same batch request.
-	ErrInvalidVisibilityTimeout = errors.New("VisibilityTimeoutSeconds must be greater than 0")
+	ErrInvalidVisibilityTimeout = errors.New("visibility timeout must be greater than 0")
 )
 
 // Item is the data type stored in the queue.
