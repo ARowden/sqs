@@ -23,29 +23,20 @@ type Item sqs.Message
 
 // Config contains required parameters to create a Queue.
 type Config struct {
-	//      The amount of time after receiving an item before it can be pulled from the queue again. This should be
-	//      enough time to process and delete the message. This must be greater than 0.
-	//
-	//      VisibilityTimeoutSeconds is a required field
-	VisibilityTimeoutSeconds int
-	//      AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
-	//      https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
-	//
-	//      Region is a required field
-	Region string
-	//      Name of the Simple Queue Service.
-	//
-	//      Name is a required field
-	Name string
+	VisibilityTimeoutSeconds int // The amount of time after receiving an item before it can be pulled from the queue
+	// again. This should be enough time to process and delete the message. This must be greater than 0.
+	Region string // AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
+	// https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
+	Name string // Name of the Simple Queue Service.
 }
 
 // Queue implements a queue based on AWS Simple Queue Service.
 type Queue struct {
-	VisibilityTimeoutSeconds int
-	Name                     *string
-	Region                   *string
-	URL                      *string
-	svc                      *sqs.SQS
+	VisibilityTimeoutSeconds int // Time after receiving the message before it can be pulled form the queue again.
+	Name   *string  // The name of the queue.
+	Region *string  // AWS region the queue is located in.
+	URL    *string  // The URL of the queue.
+	svc    *sqs.SQS // Service struct from the SQS SDK.
 }
 
 // NewQueue creates a new Queue.
