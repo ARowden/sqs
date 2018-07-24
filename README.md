@@ -21,8 +21,10 @@ simple way to retry processing a message if an error occurs when processing it. 
 config := sqs.Config{
     VisibilityTimeoutSeconds: 2,  // Enough time to process and delete an item
     Region: "AWS_REGION",
-    Name: "QueueName",
+    Name:   "QueueName",
 }
 
 queue, err := NewQueue(config)
+
+items, err := queue.PopBatch()
 ```
