@@ -8,20 +8,20 @@ and grant create an IAM user and grant the minimum privileges they will require 
 and run `awscli --config`, here you'll give the access key and seceret access key from the IAM role (this is not a best practice for secuirty).
 
 
-### SQS Creation
+#### Create a SQS
 ```golang
 sqs.CreateQueue("QueueName", "AWS_REGION")
 ```
 
-### Creating a Queue
+#### Creat a Queue
 To initialize a new queue, you need to create a configuration with the the name of the queue, the AWS region of the queue and the visibility timeout for each message. 
 The visability timeout is the amount of time you have to process a pulled message before it reappears in the queue. Depending on your workflow you may not need this, but it allows a
 simple way to retry processing a message if an error occurs when processing it. [List of regions](https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region).
 ```golang
 config := sqs.Config{
-    VisibilityTimeoutSeconds: 10,
-    Region: "aws-west-1",
-    Name: "TestQueue",
+    VisibilityTimeoutSeconds: 2,  // Enough time to process and delete an item
+    Region: "AWS_REGION",
+    Name: "QueueName",
 }
 
 queue, err := NewQueue(config)
