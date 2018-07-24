@@ -1,45 +1,6 @@
-This project is a Queue based on AWS's Simpile Queue Service with a dead simple API so that anyone, without knowledge of SQS, can 
-be up and running with in in minutes. 
+This project is a Queue based on AWS's Simpile Queue Service. The goal of this project was to create a dead simple API for 
+Amazons Simpile Queue Service so that anyone, with almost no knowledge of SQS can be up and running in minutes.
 
-For example, to retrive and delete a batch of messages with the AWS SDK, it would require...
-
-```golang
-	result, err := svc.ReceiveMessage(&sqs.ReceiveMessageInput{
-		AttributeNames: []*string{
-			aws.String(sqs.MessageSystemAttributeNameSentTimestamp),
-		},
-		MessageAttributeNames: []*string{
-			aws.String(sqs.QueueAttributeNameAll),
-		},
-		QueueUrl:            URL,
-		MaxNumberOfMessages: aws.Int64(10),
-		VisibilityTimeout:   aws.Int64(1),
-		WaitTimeSeconds:     aws.Int64(20),
-	})
-
-	for _, message := range messages {
-		newEntry := &sqs.DeleteMessageBatchRequestEntry{
-			ReceiptHandle: message.ReceiptHandle,
-			Id:            message.MessageId,
-		}
-		entries = append(entries, newEntry)
-	}
-  
-  	items := convertItemsToAwsMessages(messages)
-	entries := makeDeleteMessageBatchRequestEntry(items)
-	request := &sqs.DeleteMessageBatchInput{
-		Entries:  entries,
-		QueueUrl: URL,
-	}
-
-	output, err := svc.DeleteMessageBatch(request)
-	messages := output.Messages
-```
-Which has been simplified to...
-
-```golang
-items, err := queue.PopBatch()
-```
 ### Getting started
 #### Get the server set up with AWS access
 You will need an AWS account and permissions granted to the server you will be running from. For a simple configuration, create an IAM user
@@ -68,9 +29,9 @@ sqs.CreateQueue("QueueName", "AWS_REGION")
 sqs.DeleteQueue("QueueName", "AWS_REGION")
 ```
 
-### Supported Queue Operations
+### Supported Operations:
 #### Pop
-Receives one item from the queue and deletes it from the queue.
+⋅⋅* Receives one item from the queue and deletes it from the queue.
 #### PopBatch
 Receives up to 10 items from the queue and deletes them from the queue.
 #### Peek
