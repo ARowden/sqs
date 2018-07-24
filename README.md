@@ -25,6 +25,4 @@ config := sqs.Config{
 }
 
 queue, err := NewQueue(config)
-
-items, err := queue.PopBatch()
 ```
