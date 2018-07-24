@@ -49,52 +49,13 @@ func NewQueue(config Config) (*Queue, error) {
 	}
 
 	q.VisibilityTimeoutSeconds = config.VisibilityTimeoutSeconds
-	q.svc, err = getService(&config.Region)
+	q.svc, err = service(&config.Region)
 	if err != nil {
 		return nil, err
 	}
 
-	q.URL, err = getQueueURL(config.Name, config.Region)
+	q.URL, err = queueURL(config.Name, config.Region)
 	return &q, err
-}
-
-// invalidVisibilityTimeout returns true if the timeout is equal to 0. This is a valid setting for AWS, but makes the
-// queue unusable.
-func invalidVisibilityTimeout(timeout int) bool {
-	return timeout == 0
-}
-
-// getService returns an AWS SQS service for the specified region.
-func getService(region *string) (*sqs.SQS, error) {
-	s, err := session.NewSession(&aws.Config{Region: region})
-	return sqs.New(s), err
-}
-
-// getQueueURL returns the URL for the specified queue name in the given region.
-func getQueueURL(name, region string) (*string, error) {
-	svc, err := getService(&region)
-	if err != nil {
-		return nil, err
-	}
-
-	input := sqs.GetQueueUrlInput{QueueName: &name}
-	result, err := svc.GetQueueUrl(&input)
-	return result.QueueUrl, err
-}
-
-// ApproximateLen returns approximately the number of items in the queue. This attribute can lag the actual queue size
-// by up to 30 seconds.
-func (q *Queue) ApproximateLen() int {
-	queueLenAttribute := aws.String("ApproximateNumberOfMessages")
-	request := &sqs.GetQueueAttributesInput{
-		QueueUrl:       q.URL,
-		AttributeNames: []*string{queueLenAttribute},
-	}
-
-	response, _ := q.svc.GetQueueAttributes(request)
-	lengthAttribute := response.Attributes[*queueLenAttribute]
-	length, _ := strconv.Atoi(*lengthAttribute)
-	return length
 }
 
 // Insert inserts a string into the queue.
@@ -214,6 +175,21 @@ func (q *Queue) Clear() error {
 	return nil
 }
 
+// ApproximateLen returns approximately the number of items in the queue. This attribute can lag the actual queue size
+// by up to 30 seconds.
+func (q *Queue) ApproximateLen() int {
+	queueLenAttribute := aws.String("ApproximateNumberOfMessages")
+	request := &sqs.GetQueueAttributesInput{
+		QueueUrl:       q.URL,
+		AttributeNames: []*string{queueLenAttribute},
+	}
+
+	response, _ := q.svc.GetQueueAttributes(request)
+	lengthAttribute := response.Attributes[*queueLenAttribute]
+	length, _ := strconv.Atoi(*lengthAttribute)
+	return length
+}
+
 // purge clears the contents of the queue.
 func (q *Queue) purge() error {
 	request := &sqs.PurgeQueueInput{
@@ -271,7 +247,7 @@ func convertItemsToAwsMessages(messages []*Item) (sqsMessages []*sqs.Message) {
 // to insert the items into the queue.
 func makeBatchRequestEntries(items []string) (entries []*sqs.SendMessageBatchRequestEntry) {
 	for _, item := range items {
-		id := generateRandomID()
+		id := randomID()
 		newEntry := &sqs.SendMessageBatchRequestEntry{
 			Id:          id,
 			MessageBody: &item,
@@ -296,8 +272,32 @@ func makeDeleteMessageBatchRequestEntry(messages []*sqs.Message) (entries []*sqs
 	return entries
 }
 
-// generateRandomID generates random string that can be used with messageID and groupID fields.
-func generateRandomID() *string {
+// invalidVisibilityTimeout returns true if the timeout is equal to 0. This is a valid setting for AWS, but makes the
+// queue unusable.
+func invalidVisibilityTimeout(timeout int) bool {
+	return timeout == 0
+}
+
+// service returns an AWS SQS service for the specified region.
+func service(region *string) (*sqs.SQS, error) {
+	s, err := session.NewSession(&aws.Config{Region: region})
+	return sqs.New(s), err
+}
+
+// queueURL returns the URL for the specified queue name in the given region.
+func queueURL(name, region string) (*string, error) {
+	svc, err := service(&region)
+	if err != nil {
+		return nil, err
+	}
+
+	input := sqs.GetQueueUrlInput{QueueName: &name}
+	result, err := svc.GetQueueUrl(&input)
+	return result.QueueUrl, err
+}
+
+// randomID generates random string that can be used with messageID and groupID fields.
+func randomID() *string {
 	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	b := make([]rune, 15)
 	for i := range b {
