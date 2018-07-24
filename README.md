@@ -19,7 +19,7 @@ The visability timeout is the amount of time you have to process a pulled messag
 simple way to retry processing a message if an error occurs when processing it. [List of regions](https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region).
 ```golang
 config := sqs.Config{
-    VisibilityTimeoutSeconds: 2,  // Enough time to process and delete an item
+    VisibilityTimeoutSeconds: 2,
     Region: "AWS_REGION",
     Name:   "QueueName",
 }
