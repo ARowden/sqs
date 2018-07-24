@@ -21,17 +21,14 @@ config := sqs.Config{
 queue, err := NewQueue(config)
 ```
 
-### SQS creation/deletion
+### SQS creation
 ```golang
-// Creation
 sqs.CreateQueue("QueueName", "AWS_REGION")
-// Deletion
-sqs.DeleteQueue("QueueName", "AWS_REGION")
 ```
 
 ### Supported Operations:
 #### Pop
-⋅⋅* Receives one item from the queue and deletes it from the queue.
+Receives one item from the queue and deletes it from the queue.
 #### PopBatch
 Receives up to 10 items from the queue and deletes them from the queue.
 #### Peek
