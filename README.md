@@ -25,21 +25,3 @@ queue, err := NewQueue(config)
 ```golang
 sqs.CreateQueue("QueueName", "AWS_REGION")
 ```
-
-### Supported Operations:
-#### Pop
-Receives one item from the queue and deletes it from the queue.
-#### PopBatch
-Receives up to 10 items from the queue and deletes them from the queue.
-#### Peek
-Returns one item from the queue, but does not delete it.
-#### PeekBatch
-Returns up to 10 items from the queue, but does not delete them.
-#### Insert
-Inserts one item (string) into the queue.
-#### InsertBatch
-Inserts up to 10 items (strings) into the queue.
-#### Clear
-Clears all items from the queue. This may take up to 60 seconds and may only be called once every 60 seconds.
-#### ApproximateLength
-Returns the number of items in the queue, but lags the actual number of items in the queue by up to 30 seconds.
