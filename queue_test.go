@@ -25,10 +25,10 @@ func setup() {
 	waitForQueueCreation()
 
 	// Create global queue for test cases.
-	config := Config{
+	config := &Config{
 		VisibilityTimeoutSeconds: VisibilityTimeout,
-		Region:                   Region,
-		Name:                     TestQueue,
+		Region: Region,
+		Name:   TestQueue,
 	}
 
 	queue, err = NewQueue(config)

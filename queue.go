@@ -19,7 +19,9 @@ var (
 )
 
 // Item is the data type stored in the queue.
-type Item sqs.Message
+type Item struct {
+	sqs.Message
+}
 
 // Config contains required parameters to create a Queue.
 type Config struct {
@@ -40,7 +42,7 @@ type Queue struct {
 }
 
 // NewQueue creates a new Queue.
-func NewQueue(config Config) (*Queue, error) {
+func NewQueue(config *Config) (*Queue, error) {
 	var q Queue
 	var err error
 
@@ -93,8 +95,7 @@ func (q *Queue) Delete(message *Item) error {
 }
 
 // DeleteBatch deletes a batch of up to 10 Items.
-func (q *Queue) DeleteBatch(messages []*Item) error {
-	items := convertItemsToAwsMessages(messages)
+func (q *Queue) DeleteBatch(items []*Item) error {
 	entries := makeDeleteMessageBatchRequestEntry(items)
 	request := &sqs.DeleteMessageBatchInput{
 		Entries:  entries,
@@ -227,20 +228,10 @@ func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
 // convertAwsMessagesToItems converts aws sqs.messages to our local type, Item.
 func convertAwsMessagesToItems(awsMessages []*sqs.Message) (messages []*Item) {
 	for _, message := range awsMessages {
-		newMessage := Item(*message)
+		newMessage := Item{*message}
 		messages = append(messages, &newMessage)
 	}
 	return messages
-}
-
-// convertItemsToAwsMessages converts slice of Items to sqs.Messages
-func convertItemsToAwsMessages(messages []*Item) (sqsMessages []*sqs.Message) {
-	for _, message := range messages {
-		newMessage := sqs.Message(*message)
-		sqsMessages = append(sqsMessages, &newMessage)
-	}
-
-	return sqsMessages
 }
 
 // makeBatchRequestEntries takes a slice of string items and returns what can be used as a request to aws
@@ -260,8 +251,8 @@ func makeBatchRequestEntries(items []string) (entries []*sqs.SendMessageBatchReq
 
 // makeDeleteMessageBatchRequestEntry takes a slice of sqs messages and converts them into a request that will delete
 // all of them as a batch.
-func makeDeleteMessageBatchRequestEntry(messages []*sqs.Message) (entries []*sqs.DeleteMessageBatchRequestEntry) {
-	for _, message := range messages {
+func makeDeleteMessageBatchRequestEntry(items []*Item) (entries []*sqs.DeleteMessageBatchRequestEntry) {
+	for _, message := range items {
 		newEntry := &sqs.DeleteMessageBatchRequestEntry{
 			ReceiptHandle: message.ReceiptHandle,
 			Id:            message.MessageId,
