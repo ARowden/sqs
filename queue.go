@@ -36,7 +36,7 @@ type Config struct {
 	Name string // Name of the Simple Queue Service.
 }
 
-// DataFetcher interface can be used by a SQS backed queue and the mock queue for testing/development.
+// dataFetcher interface can be used by a SQS backed queue and the mock queue for testing/development.
 type dataFetcher interface {
 	SendMessage(input *sqs.SendMessageInput) (*sqs.SendMessageOutput, error)
 	SendMessageBatch(input *sqs.SendMessageBatchInput) (*sqs.SendMessageBatchOutput, error)
