@@ -1,10 +1,7 @@
 package sqs
 
 import (
-	"log"
-	"os"
 	"testing"
-	"time"
 )
 
 var queue *Queue
@@ -15,15 +12,7 @@ const (
 	Region            = "us-west-2"
 )
 
-func setup() {
-	// Create a queue for testing.
-	err := CreateQueue(TestQueue, Region)
-	if err != nil {
-		log.Panic(err.Error())
-	}
-
-	waitForQueueCreation()
-
+func init() {
 	// Create global queue for test cases.
 	config := &Config{
 		VisibilityTimeoutSeconds: VisibilityTimeout,
@@ -31,223 +20,187 @@ func setup() {
 		Name:   TestQueue,
 	}
 
-	queue, err = NewQueue(config)
-	if err != nil {
-		log.Panic("Error: ", err.Error())
-	}
-}
-
-func cleanup() {
-	// Delete the test queue.
-	err := DeleteQueue(TestQueue, Region)
-	if err != nil {
-		log.Panic(err.Error())
-	}
-}
-
-func TestMain(m *testing.M) {
-	setup()
-	code := m.Run()
-	cleanup()
-	os.Exit(code)
-}
-
-func TestCreateQueue(t *testing.T) {
-	queueName := "TEST"
-	CreateQueue(queueName, Region)
-	waitForQueueCreation()
-	exists, err := QueueExists(queueName, Region)
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-
-	if !exists {
-		t.Error("CreateQueue failed")
-		return
-	}
-}
-
-func TestDeleteQueue(t *testing.T) {
-	queueName := "TEST"
-	err := DeleteQueue(queueName, Region)
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-
-	waitForQueueCreation()
-	exists, err := QueueExists(queueName, Region)
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-
-	if exists {
-		t.Error("DeleteQueue failed.")
-	}
+	queue, _ = newMockQueue(config)
 }
 
 func TestInsert(t *testing.T) {
-	lenBefore := getExactLen(queue)
+	startingNumMessages := queue.ApproximateLen()
 
-	insertItem(t)
+	err := queue.Insert("Test")
+	if err != nil {
+		t.Errorf("Insert threw error.")
+	}
 
-	lenAfter := getExactLen(queue)
-
-	if lenBefore+1 != lenAfter {
-		t.Error("Insert fail")
+	if queue.ApproximateLen() != startingNumMessages+1 {
+		t.Errorf("Insert failed.")
 	}
 }
 
 func TestInsertBatch(t *testing.T) {
-	itemsInserted := 10
-	expectedLen := getExactLen(queue) + itemsInserted
+	startingNumMessages := queue.ApproximateLen()
 
-	var items []string
-	for i := 0; i < itemsInserted; i++ {
-		items = append(items, "test_messages")
-	}
+	input := []string{"test", "test", "test", "test", "test"}
 
-	err := queue.InsertBatch(items)
+	numMessagesAdded := len(input)
+
+	err := queue.InsertBatch(input)
 	if err != nil {
-		t.Error(err.Error())
-		return
+		t.Error("InsertBatch failed.")
 	}
 
-	actualLen := getExactLen(queue)
-	if expectedLen != actualLen {
-		t.Errorf("Inserted %d items but only %d succeeded.", itemsInserted, (actualLen - expectedLen))
+	if queue.ApproximateLen() != numMessagesAdded+startingNumMessages {
+		t.Error("InsertBatch failed.")
 	}
 }
 
-func TestDelete(t *testing.T) {
-	insertItem(t)
-	lenBefore := getExactLen(queue)
+func TestPeekOnEmptyQueue(t *testing.T) {
+	// Start with empty queue
+	queue.Clear()
+
+	_, err := queue.Peek()
+	if err != nil {
+		t.Error(err.Error())
+	}
+}
+
+func TestPeek(t *testing.T) {
+	testItem := "TEST ITEM"
+	// Start with empty queue
+	queue.Clear()
+
+	// Insert an item to peek
+	queue.Insert(testItem)
 
 	item, err := queue.Peek()
 	if err != nil {
 		t.Error(err.Error())
-		return
+	}
+
+	if item.String() != testItem {
+		t.Error("Peek returned incorrect item.")
+		t.Errorf("Actual: %v", item.String())
+		t.Errorf("Expected: %v", testItem)
+	}
+}
+
+func TestPeekBatch(t *testing.T) {
+	// Start with empty queue
+	queue.Clear()
+
+	testItems := []string{"test", "test", "test", "test", "test"}
+	queue.InsertBatch(testItems)
+
+	result, err := queue.PeekBatch()
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	for i := range testItems {
+		if result[i].String() != testItems[i] {
+			t.Error("PeekBatch failed.")
+		}
+	}
+}
+
+func TestDelete(t *testing.T) {
+	queue.Insert("test item")
+
+	startingNumMessages := queue.ApproximateLen()
+
+	item, err := queue.Peek()
+	if err != nil {
+		t.Error(err.Error())
 	}
 
 	err = queue.Delete(item)
 	if err != nil {
 		t.Error(err.Error())
-		return
 	}
 
-	lenAfter := getExactLen(queue)
-	if lenBefore != lenAfter+1 {
+	endingNumMessages := queue.ApproximateLen()
+	if endingNumMessages+1 != startingNumMessages {
 		t.Error("Delete failed.")
 	}
 }
 
 func TestDeleteBatch(t *testing.T) {
-	insertItems(t)
+	// Start with empty queue
+	queue.Clear()
+
+	testItems := []string{"test", "test", "test", "test", "test"}
+	queue.InsertBatch(testItems)
+
 	items, err := queue.PeekBatch()
 	if err != nil {
 		t.Error(err.Error())
-		return
 	}
 
-	expectedLen := getExactLen(queue) - len(items)
 	err = queue.DeleteBatch(items)
 	if err != nil {
 		t.Error(err.Error())
-		return
 	}
 
-	if getExactLen(queue) != expectedLen {
-		t.Error("Delete batch failed.")
-	}
-}
-
-func TestPeek(t *testing.T) {
-	insertItem(t)
-	result, err := queue.Peek()
-	if err != nil {
-		t.Error(err.Error())
+	if queue.ApproximateLen() != 0 {
+		t.Error("DeleteBatch failed.")
 	}
 
-	if result == nil {
-		t.Error("Test peek failed")
-	}
-}
-
-func TestClear(t *testing.T) {
-	insertItems(t)
-
-	err := queue.Clear()
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-
-	if getExactLen(queue) != 0 {
-		t.Error("Clear failed.")
-	}
-}
-
-func TestPeekBatch(t *testing.T) {
-	insertItems(t)
-
-	result, err := queue.PeekBatch()
-	if err != nil {
-		t.Error(err.Error())
-		return
-	}
-
-	if len(result) < 2 {
-		t.Errorf("Only received %v items. Expected 2 - 10.", len(result))
-	}
-
-	t.Logf("Batch peek returned %v items.", len(result))
 }
 
 func TestPop(t *testing.T) {
-	_, err := queue.Pop()
+	testItem := "test item"
+	// Start with empty queue
+	queue.Clear()
+
+	queue.Insert(testItem)
+
+	item, err := queue.Pop()
 	if err != nil {
 		t.Error(err.Error())
+	}
+
+	if item.String() != testItem {
+		t.Error("Pip returned incorrect item.")
+		t.Errorf("Actual: %v", item.String())
+		t.Errorf("Expected: %v", testItem)
+	}
+
+	if queue.ApproximateLen() != 0 {
+		t.Errorf("Pop failed to delete item.")
 	}
 }
 
 func TestPopBatch(t *testing.T) {
-	_, err := queue.PopBatch()
+	// Start with empty queue
+	queue.Clear()
+
+	testItems := []string{"test", "test", "test", "test", "test"}
+	queue.InsertBatch(testItems)
+
+	result, err := queue.PopBatch()
 	if err != nil {
 		t.Error(err.Error())
 	}
+
+	for i := range testItems {
+		if result[i].String() != testItems[i] {
+			t.Error("PeekBatch failed.")
+		}
+	}
+
+	if queue.ApproximateLen() != 0 {
+		t.Error("DeleteBatch failed.")
+	}
 }
 
-func insertItem(t *testing.T) {
-	err := queue.Insert("Test item")
+func TestQueueCreation(t *testing.T) {
+	config := Config{
+		VisibilityTimeoutSeconds: 1,
+		Region: "us-west-2",
+		Name:   "test",
+	}
+
+	_, err := NewQueue(&config)
 	if err != nil {
 		t.Error(err.Error())
-		return
 	}
-}
-
-func insertItems(t *testing.T) {
-	var items []string
-	for i := 0; i < 10; i++ {
-		items = append(items, "test_messages")
-	}
-
-	err := queue.InsertBatch(items)
-	if err != nil {
-		t.Error(err.Error())
-	}
-}
-
-func getExactLen(q *Queue) int {
-	waitForAccurateLen()
-	return q.ApproximateLen()
-}
-
-func waitForAccurateLen() {
-	time.Sleep(time.Second * 30)
-}
-
-func waitForQueueCreation() {
-	time.Sleep(time.Second * 60)
 }

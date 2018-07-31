@@ -1,8 +1,6 @@
 package sqs
 
 import (
-	"strings"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
@@ -65,7 +63,7 @@ func QueueExists(name, region string) (bool, error) {
 
 func queueInQueueList(queueList *sqs.ListQueuesOutput, name string) bool {
 	for _, url := range queueList.QueueUrls {
-		if strings.HasSuffix(*url, name) {
+		if *url == name {
 			return true
 		}
 	}

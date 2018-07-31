@@ -23,6 +23,10 @@ type Item struct {
 	sqs.Message
 }
 
+func (i *Item) String() string {
+	return *i.Body
+}
+
 // Config contains required parameters to create a Queue.
 type Config struct {
 	VisibilityTimeoutSeconds int // The amount of time after receiving an item before it can be pulled from the queue
@@ -32,13 +36,24 @@ type Config struct {
 	Name string // Name of the Simple Queue Service.
 }
 
+// DataFetcher interface can be used by a SQS backed queue and the mock queue for testing/development.
+type dataFetcher interface {
+	SendMessage(input *sqs.SendMessageInput) (*sqs.SendMessageOutput, error)
+	SendMessageBatch(input *sqs.SendMessageBatchInput) (*sqs.SendMessageBatchOutput, error)
+	DeleteMessage(input *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error)
+	DeleteMessageBatch(input *sqs.DeleteMessageBatchInput) (*sqs.DeleteMessageBatchOutput, error)
+	GetQueueAttributes(input *sqs.GetQueueAttributesInput) (*sqs.GetQueueAttributesOutput, error)
+	PurgeQueue(input *sqs.PurgeQueueInput) (*sqs.PurgeQueueOutput, error)
+	ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error)
+}
+
 // Queue implements a queue based on AWS Simple Queue Service.
 type Queue struct {
-	VisibilityTimeoutSeconds int      // Time after receiving the message before it can be pulled form the queue again.
-	Name                     *string  // The name of the queue.
-	Region                   *string  // AWS region the queue is located in.
-	URL                      *string  // The URL of the queue.
-	svc                      *sqs.SQS // Service struct from the SQS SDK.
+	VisibilityTimeoutSeconds int         // Time after receiving the message before it can be pulled form the queue again.
+	Name                     *string     // The name of the queue.
+	Region                   *string     // AWS region the queue is located in.
+	URL                      *string     // The URL of the queue.
+	svc                      dataFetcher // An interface to send and receive data from the AWS API.
 }
 
 // NewQueue creates a new Queue.
