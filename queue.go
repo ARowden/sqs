@@ -29,11 +29,30 @@ func (i *Item) String() string {
 
 // Config contains required parameters to create a Queue.
 type Config struct {
-	VisibilityTimeoutSeconds int // The amount of time after receiving an item before it can be pulled from the queue
-	// again. This should be enough time to process and delete the message. This must be greater than 0.
-	Region string // AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
+	// The amount of time after receiving an item before it can be pulled from the queue again. This should be enough
+	// time to process and delete the message. This must be greater than 0.
+	VisibilityTimeoutSeconds int
+	// AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
 	// https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
-	Name string // Name of the Simple Queue Service.
+	Region string
+	// Name of the Simple Queue Service.
+	Name string
+}
+
+// WithTestService returns a queue that has a mocked AWS API for basic testing without having to configure a service.
+func WithTestService() func(q *Queue) {
+	return func(q *Queue) {
+		q.svc = dataFetcher(&MockAPIService{})
+	}
+}
+
+// Queue implements a queue based on AWS Simple Queue Service.
+type Queue struct {
+	VisibilityTimeoutSeconds int         // Time after receiving the message before it can be pulled form the queue again.
+	Name                     *string     // The name of the queue.
+	Region                   *string     // AWS region the queue is located in.
+	URL                      *string     // The URL of the queue.
+	svc                      dataFetcher // An interface to send and receive data from the AWS API.
 }
 
 // dataFetcher interface can be used by a SQS backed queue and the mock queue for testing/development.
@@ -47,17 +66,8 @@ type dataFetcher interface {
 	ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error)
 }
 
-// Queue implements a queue based on AWS Simple Queue Service.
-type Queue struct {
-	VisibilityTimeoutSeconds int         // Time after receiving the message before it can be pulled form the queue again.
-	Name                     *string     // The name of the queue.
-	Region                   *string     // AWS region the queue is located in.
-	URL                      *string     // The URL of the queue.
-	svc                      dataFetcher // An interface to send and receive data from the AWS API.
-}
-
 // NewQueue creates a new Queue.
-func NewQueue(config *Config) (*Queue, error) {
+func NewQueue(config *Config, opts ...func(*Queue)) (*Queue, error) {
 	var q Queue
 	var err error
 
@@ -72,6 +82,11 @@ func NewQueue(config *Config) (*Queue, error) {
 	}
 
 	q.URL, err = queueURL(config.Name, config.Region)
+
+	for _, opt := range opts {
+		opt(&q)
+	}
+
 	return &q, err
 }
 

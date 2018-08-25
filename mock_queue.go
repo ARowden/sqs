@@ -6,28 +6,17 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
-type mockService struct {
+// MockAPIService implements a mocked AWS SQS API for testing without credentials.
+type MockAPIService struct {
 	queue []string
 }
 
-// newMockQueue returns a mock queue for testing without SQS or network connection.
-func newMockQueue(config *Config) (*Queue, error) {
-	var q Queue
-	if invalidVisibilityTimeout(config.VisibilityTimeoutSeconds) {
-		return nil, ErrInvalidVisibilityTimeout
-	}
-
-	q.VisibilityTimeoutSeconds = config.VisibilityTimeoutSeconds
-	q.svc = &mockService{}
-	return &q, nil
-}
-
-func (m *mockService) SendMessage(input *sqs.SendMessageInput) (*sqs.SendMessageOutput, error) {
+func (m *MockAPIService) SendMessage(input *sqs.SendMessageInput) (*sqs.SendMessageOutput, error) {
 	m.queue = append(m.queue, *input.MessageBody)
 	return nil, nil
 }
 
-func (m *mockService) SendMessageBatch(input *sqs.SendMessageBatchInput) (*sqs.SendMessageBatchOutput, error) {
+func (m *MockAPIService) SendMessageBatch(input *sqs.SendMessageBatchInput) (*sqs.SendMessageBatchOutput, error) {
 	for _, input := range input.Entries {
 		m.queue = append(m.queue, *input.MessageBody)
 	}
@@ -35,17 +24,17 @@ func (m *mockService) SendMessageBatch(input *sqs.SendMessageBatchInput) (*sqs.S
 	return nil, nil
 }
 
-func (m *mockService) DeleteMessage(input *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error) {
+func (m *MockAPIService) DeleteMessage(input *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error) {
 	m.queue = m.queue[1:]
 	return nil, nil
 }
 
-func (m *mockService) DeleteMessageBatch(input *sqs.DeleteMessageBatchInput) (*sqs.DeleteMessageBatchOutput, error) {
+func (m *MockAPIService) DeleteMessageBatch(input *sqs.DeleteMessageBatchInput) (*sqs.DeleteMessageBatchOutput, error) {
 	m.queue = m.queue[len(input.Entries):]
 	return nil, nil
 }
 
-func (m *mockService) GetQueueAttributes(input *sqs.GetQueueAttributesInput) (*sqs.GetQueueAttributesOutput, error) {
+func (m *MockAPIService) GetQueueAttributes(input *sqs.GetQueueAttributesInput) (*sqs.GetQueueAttributesOutput, error) {
 	attributes := make(map[string]*string)
 	numMessages := strconv.Itoa(len(m.queue))
 	attributes["ApproximateNumberOfMessages"] = &numMessages
@@ -53,12 +42,12 @@ func (m *mockService) GetQueueAttributes(input *sqs.GetQueueAttributesInput) (*s
 	return &response, nil
 }
 
-func (m *mockService) PurgeQueue(input *sqs.PurgeQueueInput) (*sqs.PurgeQueueOutput, error) {
+func (m *MockAPIService) PurgeQueue(input *sqs.PurgeQueueInput) (*sqs.PurgeQueueOutput, error) {
 	m.queue = []string{}
 	return nil, nil
 }
 
-func (m *mockService) ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error) {
+func (m *MockAPIService) ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error) {
 	var numMessagesToReturn int
 	var response sqs.ReceiveMessageOutput
 	numMessagesRequested := int(*input.MaxNumberOfMessages)

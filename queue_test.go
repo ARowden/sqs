@@ -20,7 +20,7 @@ func init() {
 		Name:   TestQueue,
 	}
 
-	queue, _ = newMockQueue(config)
+	queue, _ = NewQueue(config, WithTestService())
 }
 
 func TestInsert(t *testing.T) {
