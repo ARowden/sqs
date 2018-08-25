@@ -180,17 +180,14 @@ func (q *Queue) Pop() (*Item, error) {
 
 // PopBatch retrieves a batch of up to 10 items from the queue, deletes them from the queue and returns them.
 func (q *Queue) PopBatch() ([]*Item, error) {
-	messages, err := q.PeekBatch()
+	var Items []*Item
+	Items, err := q.PeekBatch()
 	if err != nil {
-		return nil, err
+		return Items, err
 	}
 
-	if messages == nil {
-		return nil, nil
-	}
-
-	err = q.DeleteBatch(messages)
-	return messages, err
+	err = q.DeleteBatch(Items)
+	return Items, err
 }
 
 // Clear clears contents of queue and waits for completion (takes up to 60 seconds according to AWS spec), but averages
