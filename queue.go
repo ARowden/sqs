@@ -48,10 +48,10 @@ func WithTestService() func(q *Queue) {
 
 // Queue implements a queue based on AWS Simple Queue Service.
 type Queue struct {
-	VisibilityTimeoutSeconds int         // Time after receiving the message before it can be pulled form the queue again.
-	Name                     *string     // The name of the queue.
-	Region                   *string     // AWS region the queue is located in.
-	URL                      *string     // The URL of the queue.
+	visibilityTimeoutSeconds int         // Time after receiving the message before it can be pulled form the queue again.
+	name                     string      // The name of the queue.
+	region                   string      // AWS region the queue is located in.
+	url                      string      // The url of the queue.
 	svc                      dataFetcher // An interface to send and receive data from the AWS API.
 }
 
@@ -68,25 +68,19 @@ type dataFetcher interface {
 
 // NewQueue creates a new Queue.
 func NewQueue(config *Config, opts ...func(*Queue)) (*Queue, error) {
-	var q Queue
-	var err error
-
 	if invalidVisibilityTimeout(config.VisibilityTimeoutSeconds) {
 		return nil, ErrInvalidVisibilityTimeout
 	}
 
-	q.VisibilityTimeoutSeconds = config.VisibilityTimeoutSeconds
+	var q Queue
+	var err error
+	q.visibilityTimeoutSeconds = config.VisibilityTimeoutSeconds
 	q.svc, err = service(&config.Region)
 	if err != nil {
 		return nil, err
 	}
 
-	q.URL, err = queueURL(config.Name, config.Region)
-
-	for _, opt := range opts {
-		opt(&q)
-	}
-
+	q.url, err = queueURL(config.Name, config.Region)
 	return &q, err
 }
 
@@ -94,7 +88,7 @@ func NewQueue(config *Config, opts ...func(*Queue)) (*Queue, error) {
 func (q *Queue) Insert(input string) error {
 	request := &sqs.SendMessageInput{
 		MessageBody: &input,
-		QueueUrl:    q.URL,
+		QueueUrl:    &q.url,
 	}
 
 	_, err := q.svc.SendMessage(request)
@@ -106,7 +100,7 @@ func (q *Queue) InsertBatch(inputs []string) error {
 	entries := makeBatchRequestEntries(inputs)
 	request := &sqs.SendMessageBatchInput{
 		Entries:  entries,
-		QueueUrl: q.URL,
+		QueueUrl: &q.url,
 	}
 
 	_, err := q.svc.SendMessageBatch(request)
@@ -116,7 +110,7 @@ func (q *Queue) InsertBatch(inputs []string) error {
 // Delete takes a single Item and removes it from the queue.
 func (q *Queue) Delete(message *Item) error {
 	request := &sqs.DeleteMessageInput{
-		QueueUrl:      q.URL,
+		QueueUrl:      &q.url,
 		ReceiptHandle: message.ReceiptHandle,
 	}
 
@@ -129,7 +123,7 @@ func (q *Queue) DeleteBatch(items []*Item) error {
 	entries := makeDeleteMessageBatchRequestEntry(items)
 	request := &sqs.DeleteMessageBatchInput{
 		Entries:  entries,
-		QueueUrl: q.URL,
+		QueueUrl: &q.url,
 	}
 
 	_, err := q.svc.DeleteMessageBatch(request)
@@ -208,7 +202,7 @@ func (q *Queue) Clear() error {
 func (q *Queue) ApproximateLen() int {
 	queueLenAttribute := aws.String("ApproximateNumberOfMessages")
 	request := &sqs.GetQueueAttributesInput{
-		QueueUrl:       q.URL,
+		QueueUrl:       &q.url,
 		AttributeNames: []*string{queueLenAttribute},
 	}
 
@@ -221,7 +215,7 @@ func (q *Queue) ApproximateLen() int {
 // purge clears the contents of the queue.
 func (q *Queue) purge() error {
 	request := &sqs.PurgeQueueInput{
-		QueueUrl: q.URL,
+		QueueUrl: &q.url,
 	}
 
 	_, err := q.svc.PurgeQueue(request)
@@ -244,9 +238,9 @@ func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
 		MessageAttributeNames: []*string{
 			aws.String(sqs.QueueAttributeNameAll),
 		},
-		QueueUrl:            q.URL,
+		QueueUrl:            &q.url,
 		MaxNumberOfMessages: aws.Int64(int64(n)),
-		VisibilityTimeout:   aws.Int64(int64(q.VisibilityTimeoutSeconds)),
+		VisibilityTimeout:   aws.Int64(int64(q.visibilityTimeoutSeconds)),
 		WaitTimeSeconds:     aws.Int64(20),
 	})
 	return result, err
@@ -303,15 +297,15 @@ func service(region *string) (*sqs.SQS, error) {
 }
 
 // queueURL returns the URL for the specified queue name in the given region.
-func queueURL(name, region string) (*string, error) {
+func queueURL(name, region string) (string, error) {
 	svc, err := service(&region)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	input := sqs.GetQueueUrlInput{QueueName: &name}
 	result, err := svc.GetQueueUrl(&input)
-	return result.QueueUrl, err
+	return *result.QueueUrl, err
 }
 
 // randomID generates random string that can be used with messageID and groupID fields.

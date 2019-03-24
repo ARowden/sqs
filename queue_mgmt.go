@@ -32,7 +32,7 @@ func DeleteQueue(name, region string) error {
 		return err
 	}
 
-	request := &sqs.DeleteQueueInput{QueueUrl: url}
+	request := &sqs.DeleteQueueInput{QueueUrl: &url}
 
 	_, err = svc.DeleteQueue(request)
 	return err
