@@ -1,4 +1,4 @@
-// Package sqs implements an unordered queue for distributed systems based on AWS Simple Queue Service.
+// Package sqs implements an unordered queue based on AWS Simple Queue Service.
 package sqs
 
 import (
@@ -12,25 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
-var (
-	// ErrInvalidVisibilityTimeout indicates the set VisibilityTimeoutSeconds was 0. When this happens the same items
-	// will be returned multiple times even within the same batch request.
-	ErrInvalidVisibilityTimeout = errors.New("visibility timeout must be greater than 0")
-)
-
-// Item is the data type stored in the queue.
-type Item struct {
-	sqs.Message
-}
-
-func (i *Item) String() string {
-	return *i.Body
-}
-
 // Config contains required parameters to create a Queue.
 type Config struct {
-	// The amount of time after receiving an item before it can be pulled from the queue again. This should be enough
-	// time to process and delete the message. This must be greater than 0.
+	// The amount of time after receiving an item before it can be pulled from the queue again. This
+	// should be enough time to process and delete the message. This must be greater than 0.
 	VisibilityTimeoutSeconds int
 	// AWS Region the queue is in. Ex. 'us-west-2'. For a list of regions visit:
 	// https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
@@ -39,24 +24,8 @@ type Config struct {
 	Name string
 }
 
-// WithTestService returns a queue that has a mocked AWS API for basic testing without having to configure a service.
-func WithTestService() func(q *Queue) {
-	return func(q *Queue) {
-		q.svc = dataFetcher(&MockAPIService{})
-	}
-}
-
-// Queue implements a queue based on AWS Simple Queue Service.
-type Queue struct {
-	visibilityTimeoutSeconds int         // Time after receiving the message before it can be pulled form the queue again.
-	name                     string      // The name of the queue.
-	region                   string      // AWS region the queue is located in.
-	url                      string      // The url of the queue.
-	svc                      dataFetcher // An interface to send and receive data from the AWS API.
-}
-
-// dataFetcher interface can be used by a SQS backed queue and the mock queue for testing/development.
-type dataFetcher interface {
+// awsAPI interface can be used by a SQS backed queue and the mock queue for testing/development.
+type awsAPI interface {
 	SendMessage(input *sqs.SendMessageInput) (*sqs.SendMessageOutput, error)
 	SendMessageBatch(input *sqs.SendMessageBatchInput) (*sqs.SendMessageBatchOutput, error)
 	DeleteMessage(input *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error)
@@ -66,21 +35,32 @@ type dataFetcher interface {
 	ReceiveMessage(input *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error)
 }
 
+// Queue implements a queue based on AWS Simple Queue Service.
+type Queue struct {
+	config Config
+	url    string
+	svc    awsAPI
+}
+
 // NewQueue creates a new Queue.
-func NewQueue(config *Config, opts ...func(*Queue)) (*Queue, error) {
+func NewQueue(config Config, opts ...func(*Queue)) (*Queue, error) {
 	if invalidVisibilityTimeout(config.VisibilityTimeoutSeconds) {
-		return nil, ErrInvalidVisibilityTimeout
+		return nil, errors.New("error: visibility timeout must be greater than 0")
 	}
 
 	var q Queue
 	var err error
-	q.visibilityTimeoutSeconds = config.VisibilityTimeoutSeconds
-	q.svc, err = service(&config.Region)
+	q.config = config
+	q.svc, err = getService(config.Region)
 	if err != nil {
 		return nil, err
 	}
 
 	q.url, err = queueURL(config.Name, config.Region)
+	if err != nil {
+		return nil, err
+	}
+
 	return &q, err
 }
 
@@ -108,10 +88,10 @@ func (q *Queue) InsertBatch(inputs []string) error {
 }
 
 // Delete takes a single Item and removes it from the queue.
-func (q *Queue) Delete(message *Item) error {
+func (q *Queue) Delete(msg *sqs.Message) error {
 	request := &sqs.DeleteMessageInput{
 		QueueUrl:      &q.url,
-		ReceiptHandle: message.ReceiptHandle,
+		ReceiptHandle: msg.ReceiptHandle,
 	}
 
 	_, err := q.svc.DeleteMessage(request)
@@ -119,8 +99,8 @@ func (q *Queue) Delete(message *Item) error {
 }
 
 // DeleteBatch deletes a batch of up to 10 Items.
-func (q *Queue) DeleteBatch(items []*Item) error {
-	entries := makeDeleteMessageBatchRequestEntry(items)
+func (q *Queue) DeleteBatch(items []*sqs.Message) error {
+	entries := makeDeleteMsgBatchRequestEntry(items)
 	request := &sqs.DeleteMessageBatchInput{
 		Entries:  entries,
 		QueueUrl: &q.url,
@@ -130,63 +110,64 @@ func (q *Queue) DeleteBatch(items []*Item) error {
 	return err
 }
 
-// Peek returns an Item from the queue but does not delete it. If the Item is not deleted within the visibility timeout
-// it could be received again or received by another instance of the queue. If the queue is empty nil is returned.
-func (q *Queue) Peek() (*Item, error) {
-	items, err := q.receiveNitems(1)
+// Peek returns an Item from the queue but does not delete it. If the Item is not deleted within the
+// visibility timeout it could be received again or received by another instance of the queue. If
+// the queue is empty nil is returned.
+func (q *Queue) Peek() (*sqs.Message, error) {
+	resp, err := q.receiveNitems(1)
 	if err != nil {
 		return nil, err
 	}
 
-	localItems := convertAwsMessagesToItems(items.Messages)
-	if len(localItems) == 0 {
+	if len(resp.Messages) == 0 {
 		return nil, nil
 	}
 
-	return localItems[0], nil
+	return resp.Messages[0], nil
 }
 
-// PeekBatch returns up to 10 Items from the queue put does not delete them. If the Item is not deleted within the
-// visibility timeout it could be received again or received by another instance of the queue. If the queue is empty nil
-// is returned.
-func (q *Queue) PeekBatch() ([]*Item, error) {
-	messages, err := q.receiveNitems(10)
-	items := convertAwsMessagesToItems(messages.Messages)
-	return items, err
+// PeekBatch returns up to 10 Items from the queue put does not delete them. If the Item is not
+// deleted within the visibility timeout it could be received again or received by another instance
+// of the queue. If the queue is empty nil is returned.
+func (q *Queue) PeekBatch() ([]*sqs.Message, error) {
+	resp, err := q.receiveNitems(10)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Messages, nil
 }
 
 // Pop retrieves an Item from the queue, deletes it from the queue and returns it.
-func (q *Queue) Pop() (*Item, error) {
-	response, err := q.receiveNitems(1)
+func (q *Queue) Pop() (*sqs.Message, error) {
+	msg, err := q.Peek()
 	if err != nil {
 		return nil, err
 	}
 
-	items := convertAwsMessagesToItems(response.Messages)
-	if len(items) == 0 {
-		return nil, nil
-	}
-
-	item := items[0]
-	err = q.Delete(item)
-	return item, err
-}
-
-// PopBatch retrieves a batch of up to 10 items from the queue, deletes them from the queue and returns them.
-func (q *Queue) PopBatch() ([]*Item, error) {
-	var Items []*Item
-	Items, err := q.PeekBatch()
+	err = q.Delete(msg)
 	if err != nil {
-		return Items, err
+		return nil, err
 	}
-
-	err = q.DeleteBatch(Items)
-	return Items, err
+	return msg, err
 }
 
-// Clear clears contents of queue and waits for completion (takes up to 60 seconds according to AWS spec), but averages
-// sub second times. This may only be called once every 60 seconds. An error will be returned if called twice in the
-// same minute.
+// PopBatch retrieves a batch of up to 10 messages from the queue, deletes them from the queue and
+// returns them.
+func (q *Queue) PopBatch() ([]*sqs.Message, error) {
+	var Msgs []*sqs.Message
+	Msgs, err := q.PeekBatch()
+	if err != nil {
+		return Msgs, err
+	}
+
+	err = q.DeleteBatch(Msgs)
+	return Msgs, err
+}
+
+// Clear clears contents of queue and waits for completion (takes up to 60 seconds according to AWS
+// spec), but averages sub second times. This may only be called once every 60 seconds. An error
+// will be returned if called twice in the same minute.
 func (q *Queue) Clear() error {
 	err := q.purge()
 	if err != nil {
@@ -197,8 +178,8 @@ func (q *Queue) Clear() error {
 	return nil
 }
 
-// ApproximateLen returns approximately the number of items in the queue. This attribute can lag the actual queue size
-// by up to 30 seconds.
+// ApproximateLen returns approximately the number of items in the queue. This attribute can lag the
+// actual queue size by up to 30 seconds.
 func (q *Queue) ApproximateLen() int {
 	queueLenAttribute := aws.String("ApproximateNumberOfMessages")
 	request := &sqs.GetQueueAttributesInput{
@@ -225,7 +206,7 @@ func (q *Queue) purge() error {
 // waitForPurgeCompletion waits for the size of the queue to be 0 after calling purge.
 func (q *Queue) waitForPurgeCompletion() {
 	for q.ApproximateLen() > 0 {
-		time.Sleep(50)
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -240,23 +221,14 @@ func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
 		},
 		QueueUrl:            &q.url,
 		MaxNumberOfMessages: aws.Int64(int64(n)),
-		VisibilityTimeout:   aws.Int64(int64(q.visibilityTimeoutSeconds)),
+		VisibilityTimeout:   aws.Int64(int64(q.config.VisibilityTimeoutSeconds)),
 		WaitTimeSeconds:     aws.Int64(20),
 	})
 	return result, err
 }
 
-// convertAwsMessagesToItems converts aws sqs.messages to our local type, Item.
-func convertAwsMessagesToItems(awsMessages []*sqs.Message) (messages []*Item) {
-	for _, message := range awsMessages {
-		newMessage := Item{*message}
-		messages = append(messages, &newMessage)
-	}
-	return messages
-}
-
-// makeBatchRequestEntries takes a slice of string items and returns what can be used as a request to aws
-// to insert the items into the queue.
+// makeBatchRequestEntries takes a slice of string items and returns what can be used as a request
+// to aws to insert the items into the queue.
 func makeBatchRequestEntries(items []string) (entries []*sqs.SendMessageBatchRequestEntry) {
 	for _, item := range items {
 		id := randomID()
@@ -270,9 +242,9 @@ func makeBatchRequestEntries(items []string) (entries []*sqs.SendMessageBatchReq
 	return entries
 }
 
-// makeDeleteMessageBatchRequestEntry takes a slice of sqs messages and converts them into a request that will delete
-// all of them as a batch.
-func makeDeleteMessageBatchRequestEntry(items []*Item) (entries []*sqs.DeleteMessageBatchRequestEntry) {
+// makeDeleteMsgBatchRequestEntry takes a slice of sqs messages and converts them into a request
+// that will delete all of them as a batch.
+func makeDeleteMsgBatchRequestEntry(items []*sqs.Message) (entries []*sqs.DeleteMessageBatchRequestEntry) {
 	for _, message := range items {
 		newEntry := &sqs.DeleteMessageBatchRequestEntry{
 			ReceiptHandle: message.ReceiptHandle,
@@ -284,21 +256,21 @@ func makeDeleteMessageBatchRequestEntry(items []*Item) (entries []*sqs.DeleteMes
 	return entries
 }
 
-// invalidVisibilityTimeout returns true if the timeout is equal to 0. This is a valid setting for AWS, but makes the
-// queue unusable.
+// invalidVisibilityTimeout returns true if the timeout is equal to 0. This is a valid setting for
+// AWS, but makes the queue unusable.
 func invalidVisibilityTimeout(timeout int) bool {
 	return timeout == 0
 }
 
-// service returns an AWS SQS service for the specified region.
-func service(region *string) (*sqs.SQS, error) {
-	s, err := session.NewSession(&aws.Config{Region: region})
+// getService returns an AWS SQS service for the specified region.
+func getService(region string) (*sqs.SQS, error) {
+	s, err := session.NewSession(&aws.Config{Region: &region})
 	return sqs.New(s), err
 }
 
 // queueURL returns the URL for the specified queue name in the given region.
 func queueURL(name, region string) (string, error) {
-	svc, err := service(&region)
+	svc, err := getService(region)
 	if err != nil {
 		return "", err
 	}

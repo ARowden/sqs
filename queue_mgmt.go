@@ -7,7 +7,7 @@ import (
 
 // CreateQueue creates a new queue.
 func CreateQueue(name, region string) error {
-	svc, err := service(&region)
+	svc, err := getService(region)
 	if err != nil {
 		return err
 	}
@@ -27,7 +27,7 @@ func DeleteQueue(name, region string) error {
 		return err
 	}
 
-	svc, err := service(&region)
+	svc, err := getService(region)
 	if err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func QueueExists(name, region string) (bool, error) {
 		QueueNamePrefix: aws.String(name),
 	}
 
-	svc, err := service(&region)
+	svc, err := getService(region)
 	if err != nil {
 		return false, err
 	}

@@ -7,5 +7,7 @@ import (
 )
 
 func TestQueue(t *testing.T) {
-	Convey("This should work")
+	Convey("This should work", t, func() {
+
+	})
 }
