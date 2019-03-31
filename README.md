@@ -1,5 +1,5 @@
-This project is a Queue based on AWS's Simpile Queue Service. The goal of this project was to create a dead simple API for 
-Amazons Simpile Queue Service so that anyone, with almost no knowledge of SQS can be up and running in minutes.
+This project is a client wrapper for AWS's Simpile Queue Service. The goal of this project was to create a dead simple API for 
+Amazons Simpile Queue Service so that anyone, with no knowledge of SQS, can be up and running in minutes.
 
 ### Getting started
 #### Get a server set up with AWS access
