@@ -1,4 +1,4 @@
-// Package sqs implements an unordered queue based on AWS Simple Queue Service.
+// Package sqs implements an unordered queue based on AWS Simple Client Service.
 package sqs
 
 import (
@@ -10,12 +10,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
-// Config contains required parameters to create a Queue.
+// Config contains required parameters to create a Client.
 type Config struct {
 	// AWS Region the queue is in. Ex. 'us-west-1'. For a list of regions visit:
 	// https://docs.aws.amazon.com/general/latest/gr/rande.html#sqs_region
 	Region string
-	// Name of the Simple Queue Service.
+	// Name of the Simple Client Service.
 	Name string
 	// The amount of time after receiving an item before it can be pulled from the queue again.
 	// This should be enough time to process and delete the message. This must be greater than 0.
@@ -23,7 +23,6 @@ type Config struct {
 }
 
 // awsAPI interface can be used by a SQS backed queue and the mock queue for testing/development.
-//go:generate mockgen -destination=../mocks/queue_client.go -package=mocks github.com/arowden/sqs queueClient
 type queueClient interface {
 	SendMessage(*sqs.SendMessageInput) (*sqs.SendMessageOutput, error)
 	SendMessageBatch(*sqs.SendMessageBatchInput) (*sqs.SendMessageBatchOutput, error)
@@ -37,18 +36,15 @@ type queueClient interface {
 	GetQueueUrl(*sqs.GetQueueUrlInput) (*sqs.GetQueueUrlOutput, error)
 }
 
-// Queue implements a queue based on AWS Simple Queue Service.
-
-// TODO make this client
-type Queue struct {
+type Client struct {
 	config Config
 	client queueClient
 	url    string
 }
 
-// NewQueue creates a new Queue.
-func CreateClient(config Config) (*Queue, error) {
-	c := &Queue{config: config}
+// NewQueue creates a new Client.
+func NewClient(config Config) (*Client, error) {
+	c := &Client{config: config}
 	s, err := session.NewSession(&aws.Config{Region: &c.config.Region})
 	if err != nil {
 		return nil, err
@@ -65,63 +61,63 @@ func CreateClient(config Config) (*Queue, error) {
 }
 
 // DeleteQueue deletes the specified queue from AWS.
-func (q *Queue) DeleteQueue() error {
-	req := &sqs.DeleteQueueInput{QueueUrl: &q.url}
-	_, err := q.client.DeleteQueue(req)
+func (c *Client) DeleteQueue() error {
+	req := &sqs.DeleteQueueInput{QueueUrl: &c.url}
+	_, err := c.client.DeleteQueue(req)
 	return err
 }
 
 // Insert inserts a string into the queue.
-func (q *Queue) Insert(input string) error {
+func (c *Client) Insert(input string) error {
 	request := &sqs.SendMessageInput{
 		MessageBody: &input,
-		QueueUrl:    &q.url,
+		QueueUrl:    &c.url,
 	}
 
-	_, err := q.client.SendMessage(request)
+	_, err := c.client.SendMessage(request)
 	return err
 }
 
 // InsertBatch inserts up to 10 strings into the queue.
-func (q *Queue) InsertBatch(inputs []string) error {
+func (c *Client) InsertBatch(inputs []string) error {
 	entries := makeBatchRequestEntries(inputs)
 	request := &sqs.SendMessageBatchInput{
 		Entries:  entries,
-		QueueUrl: &q.url,
+		QueueUrl: &c.url,
 	}
 
-	_, err := q.client.SendMessageBatch(request)
+	_, err := c.client.SendMessageBatch(request)
 	return err
 }
 
 // Delete takes a single Item and removes it from the queue.
-func (q *Queue) Delete(msg *sqs.Message) error {
+func (c *Client) Delete(msg *sqs.Message) error {
 	request := &sqs.DeleteMessageInput{
-		QueueUrl:      &q.url,
+		QueueUrl:      &c.url,
 		ReceiptHandle: msg.ReceiptHandle,
 	}
 
-	_, err := q.client.DeleteMessage(request)
+	_, err := c.client.DeleteMessage(request)
 	return err
 }
 
 // DeleteBatch deletes a batch of up to 10 Items.
-func (q *Queue) DeleteBatch(items []*sqs.Message) error {
+func (c *Client) DeleteBatch(items []*sqs.Message) error {
 	entries := makeDeleteMsgBatchRequestEntry(items)
 	request := &sqs.DeleteMessageBatchInput{
 		Entries:  entries,
-		QueueUrl: &q.url,
+		QueueUrl: &c.url,
 	}
 
-	_, err := q.client.DeleteMessageBatch(request)
+	_, err := c.client.DeleteMessageBatch(request)
 	return err
 }
 
 // Peek returns an Item from the queue but does not delete it. If the Item is not deleted within the
 // visibility timeout it could be received again or received by another instance of the queue. If
 // the queue is empty nil is returned.
-func (q *Queue) Peek() (*sqs.Message, error) {
-	resp, err := q.receiveNitems(1)
+func (c *Client) Peek() (*sqs.Message, error) {
+	resp, err := c.receiveNitems(1)
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +132,8 @@ func (q *Queue) Peek() (*sqs.Message, error) {
 // PeekBatch returns up to 10 Items from the queue put does not delete them. If the Item is not
 // deleted within the visibility timeout it could be received again or received by another instance
 // of the queue. If the queue is empty nil is returned.
-func (q *Queue) PeekBatch() ([]*sqs.Message, error) {
-	resp, err := q.receiveNitems(10)
+func (c *Client) PeekBatch() ([]*sqs.Message, error) {
+	resp, err := c.receiveNitems(10)
 	if err != nil {
 		return nil, err
 	}
@@ -146,13 +142,13 @@ func (q *Queue) PeekBatch() ([]*sqs.Message, error) {
 }
 
 // Pop retrieves an Item from the queue, deletes it from the queue and returns it.
-func (q *Queue) Pop() (*sqs.Message, error) {
-	msg, err := q.Peek()
+func (c *Client) Pop() (*sqs.Message, error) {
+	msg, err := c.Peek()
 	if err != nil {
 		return nil, err
 	}
 
-	err = q.Delete(msg)
+	err = c.Delete(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -161,64 +157,63 @@ func (q *Queue) Pop() (*sqs.Message, error) {
 
 // PopBatch retrieves a batch of up to 10 messages from the queue, deletes them from the queue and
 // returns them.
-func (q *Queue) PopBatch() ([]*sqs.Message, error) {
+func (c *Client) PopBatch() ([]*sqs.Message, error) {
 	var Msgs []*sqs.Message
-	Msgs, err := q.PeekBatch()
+	Msgs, err := c.PeekBatch()
 	if err != nil {
 		return Msgs, err
 	}
 
-	err = q.DeleteBatch(Msgs)
+	err = c.DeleteBatch(Msgs)
 	return Msgs, err
 }
 
 // ApproximateLen returns approximately the number of items in the queue. This attribute can lag the
 // actual queue size by up to 30 seconds.
-func (q *Queue) ApproximateLen() int {
+func (c *Client) ApproximateLen() int {
 	queueLenAttribute := aws.String("ApproximateNumberOfMessages")
 	request := &sqs.GetQueueAttributesInput{
-		QueueUrl:       &q.url,
+		QueueUrl:       &c.url,
 		AttributeNames: []*string{queueLenAttribute},
 	}
 
-	response, _ := q.client.GetQueueAttributes(request)
+	response, _ := c.client.GetQueueAttributes(request)
 	lengthAttribute := response.Attributes[*queueLenAttribute]
 	length, _ := strconv.Atoi(*lengthAttribute)
 	return length
 }
 
 // Purge clears the contents of the queue.
-func (q *Queue) Purge() error {
+func (c *Client) Purge() error {
 	request := &sqs.PurgeQueueInput{
-		QueueUrl: &q.url,
+		QueueUrl: &c.url,
 	}
 
-	_, err := q.client.PurgeQueue(request)
+	_, err := c.client.PurgeQueue(request)
 	return err
 }
 
 // receiveNitems returns specified number of items. Must be between 1 - 10.
-// TODO Nmsgs
-func (q *Queue) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
-	result, err := q.client.ReceiveMessage(&sqs.ReceiveMessageInput{
+func (c *Client) receiveNitems(n int) (*sqs.ReceiveMessageOutput, error) {
+	result, err := c.client.ReceiveMessage(&sqs.ReceiveMessageInput{
 		AttributeNames: []*string{
 			aws.String(sqs.MessageSystemAttributeNameSentTimestamp),
 		},
 		MessageAttributeNames: []*string{
 			aws.String(sqs.QueueAttributeNameAll),
 		},
-		QueueUrl:            &q.url,
+		QueueUrl:            &c.url,
 		MaxNumberOfMessages: aws.Int64(int64(n)),
-		VisibilityTimeout:   aws.Int64(int64(q.config.VisibilityTimeoutSeconds)),
+		VisibilityTimeout:   aws.Int64(int64(c.config.VisibilityTimeoutSeconds)),
 		WaitTimeSeconds:     aws.Int64(20),
 	})
 	return result, err
 }
 
 // createQueue creates a new sqs queue in AWS.
-func (q *Queue) createQueue() error {
-	req := &sqs.CreateQueueInput{QueueName: &q.config.Name}
-	_, err := q.client.CreateQueue(req)
+func (c *Client) createQueue() error {
+	req := &sqs.CreateQueueInput{QueueName: &c.config.Name}
+	_, err := c.client.CreateQueue(req)
 	return err
 }
 
